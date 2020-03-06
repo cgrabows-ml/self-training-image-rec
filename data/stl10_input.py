@@ -4,6 +4,8 @@ import sys
 import os, sys, tarfile, errno
 import numpy as np
 import matplotlib.pyplot as plt
+import imageio
+
 
 ####################################################################################
 # Copied from https://github.com/mttk/STL10/blob/master/stl10_input.py
@@ -14,12 +16,6 @@ if sys.version_info >= (3, 0, 0):
 else:
     import urllib
 
-import imageio
-# imageio.imwrite('filename.jpg', array)
-# try:
-#     from imageio import imsave
-# except:
-#     from scipy.misc import imsave
 
 print(sys.version_info)
 
