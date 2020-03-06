@@ -31,3 +31,6 @@ Incorporate data augmentation steps featured in tutorial.py to increase performa
 Implement self-training data augmentation.
 
 Implement variable learning rate.
+
+## Results
+Currently, top accuracy for the binary classification problem is at 0.9305 for the validation set.
