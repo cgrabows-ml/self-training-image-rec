@@ -1,2 +1,7 @@
 .idea*
 venv
+data/stl10_binary
+data/stl10_binnary.tar.gz
+data/img/*
+data/data/*
+.DS_Store
