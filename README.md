@@ -11,7 +11,7 @@ pip3 install -r requirements.txt
 ```
 
 ##Running
-Tutorial.py runs through a code tutorial of tensorflow for an image classifier for dogs and cats.
+tutorial.py runs through a code tutorial of tensorflow for an image classifier for dogs and cats.
 There are several different steps for dataset  viewing, training, displaying results, and finally generating some additional training data that could be used when training.
-At times
+At times you have to X out of the matplot display for the code to progress.
 The code is a bit piece-wise but should serve as a good starting point for us to work from.
