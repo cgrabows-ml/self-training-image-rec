@@ -7,6 +7,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from data.stl10_input import read_labels, read_all_images
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 
@@ -23,6 +24,21 @@ train_labels = read_labels(binary_path + "train_Y.bin")
 test_images = read_all_images(binary_path + "test_x.bin")
 test_labels = read_labels(binary_path + "test_Y.bin")
 
+def convert_labels(labels):
+    animal_labels = [2,4,5,6,7,8]
+    machine_labels = [1,3,9,10]
+    new_labels = []
+    for label in labels:
+        if label in animal_labels:
+            new_labels.append(1)
+        elif label in machine_labels:
+            new_labels.append(0)
+        else:
+            print("Error in assigning labels")
+    return np.array(new_labels)
+
+converted_test_labels = convert_labels(test_labels)
+converted_train_labels = convert_labels(train_labels)
 
 num_train = len(train_labels)
 num_test = len(test_labels)
@@ -61,10 +77,10 @@ model.summary()
 
 
 history = model.fit(
-    train_images, train_labels,
+    train_images, converted_train_labels,
     steps_per_epoch=num_train // batch_size,
     epochs=epochs,
-    validation_data=(test_images, test_labels),
+    validation_data=(test_images, converted_test_labels),
     validation_steps=num_test // batch_size
 )
 
