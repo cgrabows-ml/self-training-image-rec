@@ -91,9 +91,9 @@ unlabeled_predictions = model.predict(unlabeled_images)
 for i in range(len(unlabeled_predictions)):
     pred = unlabeled_predictions[i]
     image = unlabeled_images[i]
-    if np.amax(pred) >= .75:
-        train_images.append(image)
-        converted_train_labels.append(np.argmax(pred))
+    if np.amax(pred) >= threhold:
+        train_images = np.append(train_images,image)
+        converted_train_labels = np.append(converted_train_labels,np.argmax(pred))
 
 history = model.fit(
     train_images, converted_train_labels,
