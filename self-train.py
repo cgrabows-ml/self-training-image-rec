@@ -80,7 +80,7 @@ model.summary()
 model.fit(
     train_images, converted_train_labels,
     steps_per_epoch=num_train // batch_size,
-    epochs=1,
+    epochs=epochs,
     validation_data=(test_images, converted_test_labels),
     validation_steps=num_test // batch_size
 )
@@ -98,7 +98,7 @@ for i in range(len(unlabeled_predictions)):
 history = model.fit(
     train_images, converted_train_labels,
     steps_per_epoch=num_train // batch_size,
-    epochs=1,
+    epochs=epochs,
     validation_data=(test_images, converted_test_labels),
     validation_steps=num_test // batch_size
 )
