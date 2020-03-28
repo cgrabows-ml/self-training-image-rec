@@ -14,17 +14,18 @@ import sys, getopt
 
 def main(argv):
 
-    opts, args = getopt.getopt(argv, "hi:o:", ["binary_classification=", "subset=", "self_train=", "epochs=", "batch="])
+    opts, args = getopt.getopt(argv, "hi:o:", ["binary_classification=", "subset=", "self_train=", "epochs=", "batch=", "threshold="])
 
     binary_classification = False
     self_train = False
     subset_size = 1
     epochs = 15
     batch_size = 1000
+    threshold = .75
 
     for opt, arg in opts:
         if opt == '-h':
-            print('self-train.py --binary_classification=false --subset=1 --self_train=True --epochs=20 --batch=1000')
+            print('self-train.py --binary_classification=false --subset=1 --self_train=True --epochs=20 --batch=1000 --threshold=.75')
             sys.exit()
         elif opt in ("-st", "--self_train"):
             self_train= arg.lower in ["true", "True"]
@@ -36,6 +37,8 @@ def main(argv):
             epochs = int(arg)
         elif opt in ("-b", "--batch"):
             batch_size = int(arg)
+        elif opt in ("-t", "--threshold"):
+            threshold = float(arg)
 
     print(self_train)
     IMG_HEIGHT = 96
@@ -122,7 +125,7 @@ def main(argv):
     history = model.fit(
         train_images, train_labels,
         steps_per_epoch=num_train // batch_size,
-        epochs=10,
+        epochs=epochs,
         validation_data=(test_images, test_labels),
         validation_steps=num_test // batch_size
     )
@@ -130,10 +133,9 @@ def main(argv):
     ## Augment dataset with unlabeled images
 
     if self_train:
-        unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")[1:10000]
-        threshold = .75
+        unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
         unlabeled_predictions = model.predict(unlabeled_images)
-        for i in range(len(unlabeled_predictions[:2000])):
+        for i in range(len(unlabeled_predictions)):
             if i % 50 == 0:
                 print("Augmenting dataset " + str(i) + "/" + str(len(unlabeled_images)) + " complete")
             pred = unlabeled_predictions[i]
@@ -147,7 +149,7 @@ def main(argv):
         history = model.fit(
             train_images, train_labels,
             steps_per_epoch=num_train // batch_size,
-            epochs=5,
+            epochs=epochs,
             validation_data=(test_images, test_labels),
             validation_steps=num_test // batch_size
         )
@@ -162,6 +164,7 @@ def main(argv):
 
     plt.figure(figsize=(8, 8))
     plt.subplot(1, 2, 1)
+    print(acc)
     plt.plot(epochs_range, acc, label='Training Accuracy')
     plt.plot(epochs_range, val_acc, label='Validation Accuracy')
     plt.legend(loc='lower right')
