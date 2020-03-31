@@ -22,6 +22,7 @@ def main(argv):
     epochs = 15
     batch_size = 1000
     threshold = .75
+    name = "default"
 
     for opt, arg in opts:
         if opt == '-h':
@@ -39,6 +40,8 @@ def main(argv):
             batch_size = int(arg)
         elif opt in ("-t", "--threshold"):
             threshold = float(arg)
+        elif opt in ("-n", "--name"):
+            name = float(arg)
 
     print(self_train)
     IMG_HEIGHT = 96
@@ -153,6 +156,8 @@ def main(argv):
             validation_data=(test_images, test_labels),
             validation_steps=num_test // batch_size
         )
+
+    model.save(name)
 
     acc = history.history['accuracy']
     val_acc = history.history['val_accuracy']
