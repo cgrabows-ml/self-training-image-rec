@@ -9,6 +9,7 @@ from data.stl10_input import read_labels, read_all_images
 import matplotlib.pyplot as plt
 import numpy as np
 import math
+import os
 
 import sys, getopt
 
@@ -55,6 +56,16 @@ def main(argv):
     test_images = read_all_images(binary_path + "test_x.bin")
     test_labels = read_labels(binary_path + "test_Y.bin")
 
+
+    checkpoint_path = "training/" + name + "-cp-{epoch:04d}.ckpt"
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+
+    # Create a callback that saves the model's weights every 5 epochs
+    cp_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=checkpoint_path,
+        verbose=1,
+        save_weights_only=True,
+        period=5)
 
     def convert_labels(labels):
         animal_labels = [2,4,5,6,7,8]
@@ -125,13 +136,19 @@ def main(argv):
 
     model.summary()
 
+
+
     history = model.fit(
         train_images, train_labels,
         steps_per_epoch=num_train // batch_size,
         epochs=epochs,
+        callbacks=[cp_callback],
         validation_data=(test_images, test_labels),
         validation_steps=num_test // batch_size
     )
+
+    model.save_weights(checkpoint_path.format(epoch=0))
+
 
     ## Augment dataset with unlabeled images
 
