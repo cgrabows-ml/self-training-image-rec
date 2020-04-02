@@ -17,23 +17,27 @@ from util import convert_labels
 
 def main(argv):
 
-    opts, args = getopt.getopt(argv, "hi:o:", ["animal_path=", "machine_path=", "binary_path="])
+    opts, args = getopt.getopt(argv, "hi:o:", ["a=", "b=", "m=", "animal_epoch=", "machine_epoch=", "binary_epoch="])
 
     animal_path = ""
     machine_path = ""
     binary_path = ""
+    training_path = "training/"
 
     for opt, arg in opts:
-        if opt in ("-a", "--animal_path"):
-            animal_path = arg
-        if opt in ("-m", "--machine_path"):
-            machine_path = arg
-        if opt in ("-b", "--binary_path"):
-            binary_path = arg
+        if opt in ("-a", "--animal_epoch"):
+            animal_path = training_path + "animal-cp-{:04d}.ckpt".format(int(arg))
+        if opt in ("-m", "--machine_epoch"):
+            machine_path = training_path + "machine-cp-{:04d}.ckpt".format(int(arg))
+        if opt in ("-b", "--binary_epoch"):
+            binary_path = training_path + "binary-cp-{:04d}.ckpt".format(int(arg))
 
     # machine = 0, animal = 1 for binary
     animal_labels = [2, 4, 5, 6, 7, 8]
     machine_labels = [1, 3, 9, 10]
+
+    print(binary_path, animal_path, machine_path)
+    # exit()
 
     binary_model = get_model(binary_path,1)
     animal_model = get_model(animal_path,6)
