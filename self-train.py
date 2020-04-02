@@ -36,7 +36,7 @@ def main(argv):
             print('self-train.py --experiment=binary --subset=1 --self_train=True --epochs=20 --batch=1000 --threshold=.75')
             sys.exit()
         elif opt in ("-st", "--self_train"):
-            self_train= arg.lower in ["true", "True"]
+            self_train= arg.lower() in ["true", "True"]
         elif opt in ("-ss", "--subset"):
             subset_size = float(arg)
         elif opt in ("-exp", "--experiment"):
@@ -141,10 +141,17 @@ def main(argv):
 
     model.summary()
 
-
+    aug = ImageDataGenerator(
+        rotation_range=30,
+        zoom_range=0.15,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.15,
+        horizontal_flip=True,
+        fill_mode="nearest")
 
     history = model.fit(
-        train_images, train_labels,
+        aug.flow(train_images, train_labels, batch_size = batch_size),
         steps_per_epoch=num_train // batch_size,
         epochs=epochs,
         callbacks=[cp_callback],
@@ -172,7 +179,7 @@ def main(argv):
                 # converted_train_labels.append(np.argmax(pred))
 
         history = model.fit(
-            train_images, train_labels,
+            aug.flow(train_images, train_labels, batch_size = batch_size),
             steps_per_epoch=num_train // batch_size,
             epochs=epochs,
             validation_data=(test_images, test_labels),
