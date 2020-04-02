@@ -15,6 +15,8 @@ import os
 
 import sys, getopt
 
+from util import convert_labels
+
 
 
 def main(argv):
@@ -71,46 +73,10 @@ def main(argv):
         save_weights_only=True,
         period=5)
 
-    def convert_labels(labels, images):
-        animal_labels = [2,4,5,6,7,8]
-        machine_labels = [1,3,9,10]
-        num_classes = 10
-
-        if experiment!="default":
-            new_labels = []
-            new_images = []
-            for i in range(len(labels)):
-                if labels[i] in animal_labels:
-                    if experiment == "animal":
-                        new_labels.append(animal_labels.index(labels[i]))
-                        new_images.append(images[i])
-                    elif experiment == "binary":
-                        new_labels.append(1)
-                        new_images.append(images[i])
-                elif labels[i] in machine_labels:
-                    if experiment == "machine":
-                        new_labels.append(machine_labels.index(labels[i]))
-                        new_images.append(images[i])
-                    elif experiment == "binary":
-                        new_labels.append(0)
-                        new_images.append(images[i])
-                else:
-                    print("Error in assigning labels")
-        else:
-            new_labels = labels
-            new_images = images
-        # new_labels = [to_categorical(label) for label in new_labels]
-        # print(len(new_labels)
-        new_labels = np.array(new_labels)
-        if experiment == "default":
-            new_labels = new_labels-1
-
-        return new_labels, np.array(new_images)
-
     print(len(test_labels))
     print(len(train_labels))
-    test_labels, test_images = convert_labels(test_labels, test_images)
-    train_labels, train_images = convert_labels(train_labels, train_images)
+    test_labels, test_images = convert_labels(test_labels, test_images, experiment)
+    train_labels, train_images = convert_labels(train_labels, train_images, experiment)
     print(test_labels.shape)
     print(train_labels.shape)
     # exit()
@@ -175,7 +141,7 @@ def main(argv):
 
     model.summary()
 
-    model.save_weights(checkpoint_path.format(epoch=0))
+
 
     history = model.fit(
         train_images, train_labels,
