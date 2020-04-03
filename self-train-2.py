@@ -27,7 +27,7 @@ def main(argv):
     subset_size = 1
     epochs = 15
     batch_size = 1000
-    threshold = .75
+    threshold = .5
     experiment = "default"
     binary_classification = False
 
@@ -168,17 +168,19 @@ def main(argv):
 
     if self_train:
         # Reading only 1000 images for lack of computing power
-        #unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
-        unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
-                                            1000)
+        unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
+        #unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
+        #                                    200)
         confident = True
         # While there are still confident labelings
         while confident:
             # First train supervised model
+            #print(train_images.shape, train_labels.shape)
             history = model.fit(
                 aug.flow(train_images, train_labels, batch_size = batch_size),
                 steps_per_epoch=num_train // batch_size,
                 epochs=epochs,
+                callbacks=[cp_callback],
                 validation_data=(test_images, test_labels),
                 validation_steps=num_test // batch_size
             )
@@ -186,28 +188,43 @@ def main(argv):
             # Predict unlabeled examples and add confident ones
             count = 0
             unlabeled_predictions = model.predict(unlabeled_images)
-            to_keep = list(range(len(unlabeled_predictions)))
-            for i in range(len(unlabeled_predictions)):
+            # Converting this to probabilities:
+            temp_lab = -1
+            if experiment != "binary":
+                probss = tf.nn.softmax(unlabeled_predictions)
+                class_preds = np.amax(probss, axis = 1)
+                temp_lab = np.argmax(probss, axis = 1)
+            else:
+                # print(unlabeled_predictions, unlabeled_predictions.shape)
+                class_preds = tf.nn.sigmoid(unlabeled_predictions)
+                temp_lab = tf.round(class_preds)
+            class_preds = tf.reshape(class_preds, [len(class_preds)])
+
+            to_keep = list(range(len(class_preds)))
+            for i in range(len(class_preds)):
                 if i % 50 == 0:
                     print("Augmenting dataset " + str(i) + "/" + str(len(unlabeled_images)) + " complete")
-                pred = unlabeled_predictions[i]
+                pred = class_preds[i]
                 image = unlabeled_images[i]
                 if np.amax(pred) >= threshold:
                     train_images = np.append(train_images, image)
-                    train_labels = np.append(train_labels, pred.argmax(axis=-1))
+                    train_labels = np.append(train_labels, temp_lab[i])
                     # decrease size of unlabeled images
                     to_keep.remove(i)
-                    count = 1
+                    count += 1
+            print(count)
             unlabeled_images = unlabeled_images[to_keep, :, :, :]
             train_images = train_images.reshape(-1, 3, 96, 96)
+            train_images = np.transpose(train_images, (0, 3, 2, 1))
             # Recalculating num_train and batch_size:
             num_train = len(train_labels)
             num_batches = math.ceil(num_train/batch_size)
             batch_size = int(num_train/num_batches)
 
             # No confident labelings left
-            if count == 0:
+            if count == 0: #< 50:
                 confident = False
+                print("Exiting loop")
     model.save_weights(checkpoint_path.format(epoch=0))
     # model.save(expe)
 
