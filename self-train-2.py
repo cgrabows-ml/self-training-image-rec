@@ -187,6 +187,7 @@ def main(argv):
 
             # Predict unlabeled examples and add confident ones
             count = 0
+            if (len(unlabeled_images) == 0): break
             unlabeled_predictions = model.predict(unlabeled_images)
             # Converting this to probabilities:
             temp_lab = -1
