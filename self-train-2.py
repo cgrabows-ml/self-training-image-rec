@@ -27,7 +27,7 @@ def main(argv):
     subset_size = 1
     epochs = 15
     batch_size = 1000
-    threshold = .5
+    threshold = .75
     experiment = "default"
     binary_classification = False
 
@@ -168,14 +168,14 @@ def main(argv):
 
     if self_train:
         # Reading only 1000 images for lack of computing power
-        unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
-        #unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
-        #                                    200)
+        #unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
+        unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
+                                            int(100000 * subset_size))
         confident = True
         # While there are still confident labelings
         while confident:
             # First train supervised model
-            #print(train_images.shape, train_labels.shape)
+            print(train_images.shape, train_labels.shape)
             history = model.fit(
                 aug.flow(train_images, train_labels, batch_size = batch_size),
                 steps_per_epoch=num_train // batch_size,
@@ -200,20 +200,30 @@ def main(argv):
                 temp_lab = tf.round(class_preds)
             class_preds = tf.reshape(class_preds, [len(class_preds)])
 
-            to_keep = list(range(len(class_preds)))
-            for i in range(len(class_preds)):
-                if i % 50 == 0:
-                    print("Augmenting dataset " + str(i) + "/" + str(len(unlabeled_images)) + " complete")
-                pred = class_preds[i]
-                image = unlabeled_images[i]
-                if np.amax(pred) >= threshold:
-                    train_images = np.append(train_images, image)
-                    train_labels = np.append(train_labels, temp_lab[i])
-                    # decrease size of unlabeled images
-                    to_keep.remove(i)
-                    count += 1
+            # Version 1: Not vectorized
+            # to_keep = list(range(len(class_preds)))
+            # for i in range(len(class_preds)):
+            #     if i % 50 == 0:
+            #         print("Augmenting dataset " + str(i) + "/" + str(len(unlabeled_images)) + " complete")
+            #     pred = class_preds[i]
+            #     image = unlabeled_images[i]
+            #     if np.amax(pred) >= threshold:
+            #         train_images = np.append(train_images, image)
+            #         train_labels = np.append(train_labels, temp_lab[i])
+            #         # decrease size of unlabeled images
+            #         to_keep.remove(i)
+            #         count += 1
+            #unlabeled_images = unlabeled_images[to_keep, :, :, :]
+
+            # Version 2: Vectorized?
+            to_remove = class_preds >= threshold
+            train_images = np.append(train_images, unlabeled_images[to_remove])
+            train_labels = np.append(train_labels, temp_lab[to_remove])
+            count = np.sum(to_remove)
+            unlabeled_images = unlabeled_images[np.logical_not(to_remove)]
             print(count)
-            unlabeled_images = unlabeled_images[to_keep, :, :, :]
+            print(unlabeled_images.shape)
+
             train_images = train_images.reshape(-1, 3, 96, 96)
             train_images = np.transpose(train_images, (0, 3, 2, 1))
             # Recalculating num_train and batch_size:
