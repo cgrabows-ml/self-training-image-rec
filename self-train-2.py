@@ -51,7 +51,7 @@ def main(argv):
         elif opt in ("-t", "--threshold"):
             threshold = float(arg)
 
-    print(self_train)
+    print("self-train: ", self_train)
     IMG_HEIGHT = 96
     IMG_WIDTH = 96
 
@@ -74,6 +74,7 @@ def main(argv):
     models = []
     all_train_labels = []
     all_test_labels = []
+    histories = []
 
     for sub_experiment in experiments:
 
@@ -123,7 +124,8 @@ def main(argv):
 
         model = Sequential([
             Conv2D(16, 3, padding='same', activation='relu',
-                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3)),
+                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3),
+                   kernel_regularizer=regularizers.l2(0.01)),
             MaxPooling2D(),
             Dropout(0.2),
             Conv2D(32, 3, padding='same', activation='relu'),
@@ -156,7 +158,7 @@ def main(argv):
             horizontal_flip=True,
             fill_mode="nearest")
 
-        history = model.fit(
+        histories.append(model.fit(
             # fixed
             train_images, train_labels,
             # broken
@@ -166,7 +168,7 @@ def main(argv):
             callbacks=[cp_callback],
             validation_data=(test_images, test_labels),
             validation_steps=num_test // batch_size
-        )
+        ))
 
         if experiment == "disagreement":
             model.save_weights((checkpoint_path + sub_experiment).format(epoch=0))
@@ -201,6 +203,7 @@ def main(argv):
             unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
                                                 int(100000 * subset_size))
             confident = True
+            first = True
             # While there are still confident labelings
             while confident:
                 # First train supervised model
@@ -216,22 +219,24 @@ def main(argv):
                 #     validation_data=(test_images, test_labels),
                 #     validation_steps=num_test // batch_size
                 # )
-                animal_history = animal_model.fit(
-                    aug.flow(train_images, animal_train_labels, batch_size = batch_size),
-                    steps_per_epoch=num_train // batch_size,
-                    epochs=epochs,
-                    callbacks=[cp_callback],
-                    validation_data=(test_images, animal_test_labels),
-                    validation_steps=num_test // batch_size
-                )
-                machine_history = machine_model.fit(
-                    aug.flow(train_images, machine_train_labels, batch_size = batch_size),
-                    steps_per_epoch=num_train // batch_size,
-                    epochs=epochs,
-                    callbacks=[cp_callback],
-                    validation_data=(test_images, machine_test_labels),
-                    validation_steps=num_test // batch_size
-                )
+                if not first:
+                    histories[0] = animal_model.fit(
+                        aug.flow(train_images, animal_train_labels, batch_size = batch_size),
+                        steps_per_epoch=num_train // batch_size,
+                        epochs=epochs,
+                        callbacks=[cp_callback],
+                        validation_data=(test_images, animal_test_labels),
+                        validation_steps=num_test // batch_size
+                    )
+                    histories[1] = machine_model.fit(
+                        aug.flow(train_images, machine_train_labels, batch_size = batch_size),
+                        steps_per_epoch=num_train // batch_size,
+                        epochs=epochs,
+                        callbacks=[cp_callback],
+                        validation_data=(test_images, machine_test_labels),
+                        validation_steps=num_test // batch_size
+                    )
+                first = False
                 # print(train_images[0])
 
 
@@ -268,7 +273,7 @@ def main(argv):
                 assert class_preds.shape == class_predsA.shape
                 print("pred shape", class_predsA.shape)
 
-                to_remove_thresh = class_preds >= threshold
+                to_remove_thresh = (class_preds >= threshold)
                 to_remove_xor = (temp_labA == 6) != (temp_labM == 4)
                     # XOR: one and only one of the predictions is 'other'
                 to_remove = np.logical_and(to_remove_thresh, to_remove_xor)
@@ -280,11 +285,9 @@ def main(argv):
                 machine_train_labels = np.append(machine_train_labels, new_machine_labels)
                 count = np.sum(to_remove)
                 unlabeled_images = unlabeled_images[np.logical_not(to_remove)]
-                print(count)
-                print(unlabeled_images.shape)
+                print("New datapoints: ", count)
+                print("Remaining Datapoints:" ,unlabeled_images.shape)
 
-                #train_images = train_images.reshape(-1, 3, 96, 96)
-                #train_images = np.transpose(train_images, (0, 3, 2, 1))
                 train_images = train_images.reshape(-1, 96, 96, 3)
 
                 #print(train_images[0])
@@ -298,6 +301,9 @@ def main(argv):
                 if count == 0: #< 50:
                     confident = False
                     print("Exiting loop")
+            model[0].save_weights((checkpoint_path + "disagreement_animal").format(epoch=0))
+            model[1].save_weights((checkpoint_path + "disagreement_machine").format(epoch=0))
+
         else:
             # Reading only 1000 images for lack of computing power
             #unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
@@ -309,7 +315,7 @@ def main(argv):
                 # First train supervised model
                 print("Train images and Label shape: ",
                       train_images.shape, train_labels.shape)
-                history = model.fit(
+                history[0] = model.fit(
                     aug.flow(train_images, train_labels, batch_size = batch_size),
                     steps_per_epoch=num_train // batch_size,
                     epochs=epochs,
@@ -378,29 +384,31 @@ def main(argv):
 
 
     # TO DO: computing accuracy of model and loss of model
-    acc = history.history['accuracy']
-    val_acc = history.history['val_accuracy']
 
-    loss=history.history['loss']
-    val_loss=history.history['val_loss']
+    for history in histories:
+        acc = history.history['accuracy']
+        val_acc = history.history['val_accuracy']
 
-    epochs_range = range(epochs)
+        loss=history.history['loss']
+        val_loss=history.history['val_loss']
 
-    plt.figure(figsize=(8, 8))
-    plt.subplot(1, 2, 1)
-    print("Traing Accuracy:", acc)
-    print("Val Accuracy", val_acc)
-    plt.plot(epochs_range, acc, label='Training Accuracy')
-    plt.plot(epochs_range, val_acc, label='Validation Accuracy')
-    plt.legend(loc='lower right')
-    plt.title('Training and Validation Accuracy')
+        epochs_range = range(epochs)
 
-    plt.subplot(1, 2, 2)
-    plt.plot(epochs_range, loss, label='Training Loss')
-    plt.plot(epochs_range, val_loss, label='Validation Loss')
-    plt.legend(loc='upper right')
-    plt.title('Training and Validation Loss')
-    plt.show()
+        plt.figure(figsize=(8, 8))
+        plt.subplot(1, 2, 1)
+        print("Traing Accuracy:", acc)
+        print("Val Accuracy", val_acc)
+        plt.plot(epochs_range, acc, label='Training Accuracy')
+        plt.plot(epochs_range, val_acc, label='Validation Accuracy')
+        plt.legend(loc='lower right')
+        plt.title('Training and Validation Accuracy')
+
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs_range, loss, label='Training Loss')
+        plt.plot(epochs_range, val_loss, label='Validation Loss')
+        plt.legend(loc='upper right')
+        plt.title('Training and Validation Loss')
+        plt.show()
 
 if __name__ == "__main__":
    main(sys.argv[1:])
