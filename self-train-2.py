@@ -24,7 +24,6 @@ def main(argv):
 
     opts, args = getopt.getopt(argv, "hi:o:", ["test=", "experiment=", "subset=", "self_train=", "epochs=", "batch=", "threshold="])
 
-    # Setting Defaults:
     self_train = False
     subset_size = 1
     epochs = 15
@@ -33,14 +32,11 @@ def main(argv):
     experiment = "default"
     binary_classification = False
 
-
-    # Reading Options
     for opt, arg in opts:
         if opt == '-h':
             print('self-train.py --experiment=binary --subset=1 --self_train=True --epochs=20 --batch=1000 --threshold=.75')
             sys.exit()
         elif opt in ("-st", "--self_train"):
-            print(arg)
             self_train= arg.lower() in ["true", "True"]
         elif opt in ("-ss", "--subset"):
             subset_size = float(arg)
@@ -55,102 +51,79 @@ def main(argv):
         elif opt in ("-t", "--threshold"):
             threshold = float(arg)
 
-    print("Self Train: ", self_train)
-    print("Subset Size: ", subset_size)
+    print(self_train)
     IMG_HEIGHT = 96
     IMG_WIDTH = 96
 
     binary_path = "data/stl10_binary/"
 
-    train_images = read_all_images(binary_path + "train_X.bin")
-    train_labels = read_labels(binary_path + "train_y.bin")
+    # if experiment != "disagreement":
 
-    test_images = read_all_images(binary_path + "test_X.bin")
-    test_labels = read_labels(binary_path + "test_y.bin")
+    og_train_images = read_all_images(binary_path + "train_X.bin")
+    og_train_labels = read_labels(binary_path + "train_y.bin")
 
+    og_test_images = read_all_images(binary_path + "test_X.bin")
+    og_test_labels = read_labels(binary_path + "test_y.bin")
 
-    checkpoint_path = "training/" + experiment + "-cp-{epoch:04d}.ckpt"
-    checkpoint_dir = os.path.dirname(checkpoint_path)
-
-    # Create a callback that saves the model's weights every 5 epochs
-    cp_callback = tf.keras.callbacks.ModelCheckpoint(
-        filepath=checkpoint_path,
-        verbose=1,
-        save_weights_only=True,
-        period=5)
-
-    print("Test Labels: ", len(test_labels))
-    print("Train Labels: ", len(train_labels))
-
-    # Converting labels - we split to 3 label sets with disagreement
+    experiments = []
     if experiment == "disagreement":
-        # FILL ME IN
-        # 3 label sets? or just 1 and then additional code later
+        experiments = ["disagreement_animal", "disagreement_machine"]
     else:
-        test_labels, test_images = convert_labels(test_labels, test_images, experiment)
-        train_labels, train_images = convert_labels(train_labels, train_images, experiment)
-    print("Test Label Shape: ", test_labels.shape)
-    print("Test Label Shape: ", train_labels.shape)
-    # exit()
+        experiments = [experiment]
+
+    models = []
+    all_train_labels = []
+    all_test_labels = []
+
+    for sub_experiment in experiments:
+
+        checkpoint_path = "training/" + experiment + "-cp-{epoch:04d}.ckpt"
+        checkpoint_dir = os.path.dirname(checkpoint_path)
+
+        # Create a callback that saves the model's weights every 5 epochs
+        cp_callback = tf.keras.callbacks.ModelCheckpoint(
+            filepath=checkpoint_path,
+            verbose=1,
+            save_weights_only=True,
+            period=5)
+
+        test_labels, test_images = convert_labels(og_test_labels, og_test_images, sub_experiment)
+        train_labels, train_images = convert_labels(og_train_labels, og_train_images, sub_experiment)
+
+        num_train = math.floor(len(train_labels)*subset_size)
+        num_test = math.floor(len(test_labels)*subset_size)
+
+        test_labels = test_labels[:num_test]
+        train_labels = train_labels[:num_train]
+        test_images = test_images[:num_test]
+        train_images = train_images[:num_train]
+        all_train_labels.append(train_labels)
+        all_test_labels.append(test_labels)
+
+        print(num_train, batch_size)
+
+        num_batches = math.ceil(num_train/batch_size)
+        batch_size = int(num_train/num_batches)
+
+        print("Adjusted batch size to " + str(batch_size))
+
+        if sub_experiment == "binary":
+            num_classes = 1
+        elif sub_experiment == "animal":
+            num_classes = 6
+        elif sub_experiment == "machine":
+            num_classes = 4
+        elif sub_experiment == "disagreement_animal":
+            num_classes = 7
+        elif sub_experiment == "disagreement_machine":
+            num_classes = 5
+        else:
+            num_classes = 10
 
 
-    num_train = math.floor(len(train_labels)*subset_size)
-    num_test = math.floor(len(test_labels)*subset_size)
-
-    test_labels = test_labels[:num_test]
-    train_labels = train_labels[:num_train]
-    test_images = test_images[:num_test]
-    train_images = train_images[:num_train]
-
-    num_batches = math.ceil(num_train/batch_size)
-    batch_size = int(num_train/num_batches)
-
-    print("Adjusted batch size to " + str(batch_size))
-
-    def plotImages(images_arr):
-        fig, axes = plt.subplots(1, 5, figsize=(20,20))
-        axes = axes.flatten()
-        for img, ax in zip( images_arr, axes):
-            ax.imshow(img)
-            ax.axis('off')
-        plt.tight_layout()
-        plt.show()
-
-    #plotImages(train_images[:5])
-
-    if experiment == "binary":
-        num_classes = 1
-    elif experiment == "animal":
-        num_classes = 6
-    elif experiment == "machine":
-        num_classes = 4
-    else:
-        num_classes = 10
-
-
-    # Defining Model: Fill in improved model here
-
-    model = Sequential([
-        Conv2D(16, 3, padding='same', activation='relu',
-               input_shape=(IMG_HEIGHT, IMG_WIDTH ,3),
-               kernel_regularizer=regularizers.l2(0.01)),
-        MaxPooling2D(),
-        Dropout(0.2),
-        Conv2D(32, 3, padding='same', activation='relu'),
-        MaxPooling2D(),
-        Conv2D(64, 3, padding='same', activation='relu'),
-        MaxPooling2D(),
-        Dropout(0.2),
-        Flatten(),
-        Dense(512, activation='relu'),
-        Dense(num_classes)
-    ])
-
-    if experiment == "disagreement":
-        Amodel = Sequential([
+        model = Sequential([
             Conv2D(16, 3, padding='same', activation='relu',
-                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3),
-                   kernel_regularizer=regularizers.l2(0.01)),
+                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3)),
             MaxPooling2D(),
             Dropout(0.2),
             Conv2D(32, 3, padding='same', activation='relu'),
@@ -160,44 +133,47 @@ def main(argv):
             Dropout(0.2),
             Flatten(),
             Dense(512, activation='relu'),
-            Dense(7)
-        ])
-        Mmodel = Sequential([
-            Conv2D(16, 3, padding='same', activation='relu',
-                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3),
-                   kernel_regularizer=regularizers.l2(0.01)),
-            MaxPooling2D(),
-            Dropout(0.2),
-            Conv2D(32, 3, padding='same', activation='relu'),
-            MaxPooling2D(),
-            Conv2D(64, 3, padding='same', activation='relu'),
-            MaxPooling2D(),
-            Dropout(0.2),
-            Flatten(),
-            Dense(512, activation='relu'),
-            Dense(5)
+            Dense(num_classes)
         ])
 
-    if experiment=="binary":
-        model.compile(optimizer='adam',
-                      loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-                      metrics=['accuracy'])
-    elif experiment == "disagreement":
-        model.compile(optimizer='adam',
-                      loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                      metrics=['accuracy'])
-        Amodel.compile(optimizer='adam',
-                      loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                      metrics=['accuracy'])
-        Mmodel.compile(optimizer='adam',
-                      loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                      metrics=['accuracy'])
-    else:
-        model.compile(optimizer='adam',
-                      loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                      metrics=['accuracy'])
+        if experiment=="binary":
+            model.compile(optimizer='adam',
+                          loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+                          metrics=['accuracy'])
+        else:
+            model.compile(optimizer='adam',
+                          loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+                          metrics=['accuracy'])
 
-    model.summary()
+        model.summary()
+
+        aug = ImageDataGenerator(
+            rotation_range=30,
+            zoom_range=0.15,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            shear_range=0.15,
+            horizontal_flip=True,
+            fill_mode="nearest")
+
+        history = model.fit(
+            # fixed
+            train_images, train_labels,
+            # broken
+            # aug.flow(train_images, train_labels, batch_size = batch_size),
+            steps_per_epoch=num_train // batch_size,
+            epochs=epochs,
+            callbacks=[cp_callback],
+            validation_data=(test_images, test_labels),
+            validation_steps=num_test // batch_size
+        )
+
+        if experiment == "disagreement":
+            model.save_weights((checkpoint_path + sub_experiment).format(epoch=0))
+            models.append(model)
+        else:
+            model.save_weights(checkpoint_path.format(epoch=0))
+            models.append(model)
 
     aug = ImageDataGenerator(
         rotation_range=30,
@@ -208,36 +184,18 @@ def main(argv):
         horizontal_flip=True,
         fill_mode="nearest")
 
-    if experiment == "disagreement":
-        # Single loop.
-        if not self_train:
-            # history = model.fit(
-            #     aug.flow(train_images, train_labels, batch_size = batch_size),
-            #     steps_per_epoch=num_train // batch_size,
-            #     epochs=epochs,
-            #     callbacks=[cp_callback],
-            #     validation_data=(test_images, test_labels),
-            #     validation_steps=num_test // batch_size
-            # )
-            Ahistory = Amodel.fit(
-                aug.flow(train_images, train_labels, batch_size = batch_size),
-                steps_per_epoch=num_train // batch_size,
-                epochs=epochs,
-                callbacks=[cp_callback],
-                validation_data=(test_images, test_labels),
-                validation_steps=num_test // batch_size
-            )
-            Mhistory = Mmodel.fit(
-                aug.flow(train_images, train_labels, batch_size = batch_size),
-                steps_per_epoch=num_train // batch_size,
-                epochs=epochs,
-                callbacks=[cp_callback],
-                validation_data=(test_images, test_labels),
-                validation_steps=num_test // batch_size
-            )
-        ## Augment dataset with unlabeled images
+    if self_train:
 
-        if self_train:
+        if experiment == "disagreement":
+            ## Augment dataset with unlabeled images
+
+            animal_model = models[0]
+            machine_model = models[1]
+            animal_train_labels = all_train_labels[0]
+            machine_train_labels = all_train_labels[1]
+            animal_test_labels = all_test_labels[0]
+            machine_test_labels = all_test_labels[1]
+
             # Reading only 1000 images for lack of computing power
             #unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
             unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
@@ -246,8 +204,10 @@ def main(argv):
             # While there are still confident labelings
             while confident:
                 # First train supervised model
-                print("Train images and Label shape: ",
-                      train_images.shape, train_labels.shape)
+                print("Train images and Animal, machine Label shape: ",
+                      train_images.shape, animal_train_labels.shape, machine_train_labels.shape)
+                print("test images and Animal, machine Label shape: ",
+                      test_images.shape, animal_test_labels.shape, machine_test_labels.shape)
                 # history = model.fit(
                 #     aug.flow(train_images, train_labels, batch_size = batch_size),
                 #     steps_per_epoch=num_train // batch_size,
@@ -256,20 +216,20 @@ def main(argv):
                 #     validation_data=(test_images, test_labels),
                 #     validation_steps=num_test // batch_size
                 # )
-                Ahistory = Amodel.fit(
-                    aug.flow(train_images, train_labels, batch_size = batch_size),
+                animal_history = animal_model.fit(
+                    aug.flow(train_images, animal_train_labels, batch_size = batch_size),
                     steps_per_epoch=num_train // batch_size,
                     epochs=epochs,
                     callbacks=[cp_callback],
-                    validation_data=(test_images, test_labels),
+                    validation_data=(test_images, animal_test_labels),
                     validation_steps=num_test // batch_size
                 )
-                Mhistory = Mmodel.fit(
-                    aug.flow(train_images, train_labels, batch_size = batch_size),
+                machine_history = machine_model.fit(
+                    aug.flow(train_images, machine_train_labels, batch_size = batch_size),
                     steps_per_epoch=num_train // batch_size,
                     epochs=epochs,
                     callbacks=[cp_callback],
-                    validation_data=(test_images, test_labels),
+                    validation_data=(test_images, machine_test_labels),
                     validation_steps=num_test // batch_size
                 )
                 # print(train_images[0])
@@ -278,8 +238,8 @@ def main(argv):
                 # Predict unlabeled examples and add confident ones
                 count = 0
                 if (len(unlabeled_images) == 0): break
-                unlabeled_predictionsA = Amodel.predict(unlabeled_images)
-                unlabeled_predictionsM = Mmodel.predict(unlabeled_images)
+                unlabeled_predictionsA = animal_model.predict(unlabeled_images)
+                unlabeled_predictionsM = machine_model.predict(unlabeled_images)
                 # Converting this to probabilities:
                 # print(unlabeled_predictions, unlabeled_predictions.shape)
                 probs_A = tf.nn.softmax(unlabeled_predictionsA)
@@ -292,10 +252,13 @@ def main(argv):
                 machine_labels = [1,3,9,10,0]
                 # If both predicts other or both predict non-other,
                 # it should not get selected for ST so wrong labels wont matter
-                new_labels = []
+                new_animal_labels = []
+                new_machine_labels = []
                 for i in range(len(temp_labA)):
-                    new_labels.append(max(animal_labels[temp_labA[i]],
-                                          machine_labels[temp_labM[i]]))
+                    new_animal_labels.append(temp_labA[i])
+                    new_machine_labels.append(temp_labM[i])
+                    # new_labels.append(max(animal_labels[temp_labA[i]],
+                    #                       machine_labels[temp_labM[i]]))
                 class_predsA = np.amax(probs_A, axis = 1)
                 class_predsM = np.amax(probs_M, axis = 1)
                 class_predsA = tf.reshape(class_predsA, [len(class_predsA)])
@@ -303,12 +266,18 @@ def main(argv):
                 class_preds = class_predsA * class_predsM
 
                 assert class_preds.shape == class_predsA.shape
+                print("pred shape", class_predsA.shape)
 
-                to_remove = (class_preds >= threshold) and
-                    ((temp_labA == 6) != (temp_labM == 4))
+                to_remove_thresh = class_preds >= threshold
+                to_remove_xor = (temp_labA == 6) != (temp_labM == 4)
                     # XOR: one and only one of the predictions is 'other'
+                to_remove = np.logical_and(to_remove_thresh, to_remove_xor)
                 train_images = np.append(train_images, unlabeled_images[to_remove])
-                train_labels = np.append(train_labels, new_labels[to_remove])
+                # print(new_a / nimal_labels.dtype)
+                new_animal_labels = np.array(new_animal_labels)[to_remove]
+                new_machine_labels = np.array(new_machine_labels)[to_remove]
+                animal_train_labels = np.append(animal_train_labels, new_animal_labels)
+                machine_train_labels = np.append(machine_train_labels, new_machine_labels)
                 count = np.sum(to_remove)
                 unlabeled_images = unlabeled_images[np.logical_not(to_remove)]
                 print(count)
@@ -317,10 +286,11 @@ def main(argv):
                 #train_images = train_images.reshape(-1, 3, 96, 96)
                 #train_images = np.transpose(train_images, (0, 3, 2, 1))
                 train_images = train_images.reshape(-1, 96, 96, 3)
+
                 #print(train_images[0])
 
                 # Recalculating num_train and batch_size:
-                num_train = len(train_labels)
+                num_train = len(animal_train_labels)
                 num_batches = math.ceil(num_train/batch_size)
                 batch_size = int(num_train/num_batches)
 
@@ -328,21 +298,7 @@ def main(argv):
                 if count == 0: #< 50:
                     confident = False
                     print("Exiting loop")
-    else:
-        # Single loop.
-        if not self_train:
-            history = model.fit(
-                aug.flow(train_images, train_labels, batch_size = batch_size),
-                steps_per_epoch=num_train // batch_size,
-                epochs=epochs,
-                callbacks=[cp_callback],
-                validation_data=(test_images, test_labels),
-                validation_steps=num_test // batch_size
-            )
-
-        ## Augment dataset with unlabeled images
-
-        if self_train:
+        else:
             # Reading only 1000 images for lack of computing power
             #unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
             unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
@@ -415,7 +371,7 @@ def main(argv):
                 if count == 0: #< 50:
                     confident = False
                     print("Exiting loop")
-    model.save_weights(checkpoint_path.format(epoch=0))
+            model.save_weights(checkpoint_path.format(epoch=0))
     # model.save(expe)
 
 
