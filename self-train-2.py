@@ -253,8 +253,8 @@ def main(argv):
                 temp_labM = np.argmax(probs_M, axis = 1)
 
                 # Combining animal and machine labels to one
-                animal_labels = [2,4,5,6,7,8,0]
-                machine_labels = [1,3,9,10,0]
+                # animal_labels = [2,4,5,6,7,8,0]
+                # machine_labels = [1,3,9,10,0]
                 # If both predicts other or both predict non-other,
                 # it should not get selected for ST so wrong labels wont matter
                 new_animal_labels = []
@@ -382,9 +382,6 @@ def main(argv):
 
 
 
-
-    # TO DO: computing accuracy of model and loss of model
-
     for history in histories:
         acc = history.history['accuracy']
         val_acc = history.history['val_accuracy']
@@ -396,7 +393,7 @@ def main(argv):
 
         plt.figure(figsize=(8, 8))
         plt.subplot(1, 2, 1)
-        print("Traing Accuracy:", acc)
+        print("Training Accuracy:", acc)
         print("Val Accuracy", val_acc)
         plt.plot(epochs_range, acc, label='Training Accuracy')
         plt.plot(epochs_range, val_acc, label='Validation Accuracy')
@@ -409,6 +406,37 @@ def main(argv):
         plt.legend(loc='upper right')
         plt.title('Training and Validation Loss')
         plt.show()
+
+
+    animal_labels = [2,4,5,6,7,8]
+    machine_labels = [1,3,9,10]
+    animal_model = models[0]
+    machine_model = models[1]
+    animal_predictions = animal_model.predict(test_images)
+    animal_predictions = tf.nn.softmax(animal_predictions)
+    print("animal predictions shape: ", animal_predictions.shape)
+    animal_class_preds = np.amax(animal_predictions[:, 0:6], axis = 1)
+    animal_other_preds = animal_predictions[:, 6]
+    animal_class_labels = np.argmax(animal_predictions[:, 0:6], axis = 1)
+
+    machine_predictions = machine_model.predict(test_images)
+    print("machine predictions shape: ", machine_predictions.shape)
+    machine_class_preds = np.amax(machine_predictions[:, 0:4], axis = 1)
+    machine_other_preds = machine_predictions[:, 4]
+    machine_class_labels = np.argmax(machine_predictions[:, 0:4], axis = 1)
+
+    model_preds = []
+    for i in range(len(test_labels)):
+        if animal_class_preds[i] * machine_other_preds[i] > \
+                animal_other_preds[i] * machine_class_preds[i]:
+            model_preds.append(animal_labels[animal_class_labels[i]])
+        else:
+            model_preds.append(machine_labels[machine_class_labels[i]])
+
+    valid_accuracy = np.sum(model_preds == test_labels) / len(test_labels)
+    print("validation accuracy: ", valid_accuracy)
+
+
 
 if __name__ == "__main__":
    main(sys.argv[1:])
