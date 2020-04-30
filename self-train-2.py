@@ -78,7 +78,7 @@ def main(argv):
 
     for sub_experiment in experiments:
 
-        checkpoint_path = "training/" + experiment + "-cp-{epoch:04d}.ckpt"
+        checkpoint_path = "training/" + sub_experiment + "-cp-{epoch:04d}.ckpt"
         checkpoint_dir = os.path.dirname(checkpoint_path)
 
         # Create a callback that saves the model's weights every 5 epochs
@@ -171,7 +171,7 @@ def main(argv):
         ))
 
         if experiment == "disagreement":
-            model.save_weights((checkpoint_path + sub_experiment).format(epoch=0))
+            model.save_weights((checkpoint_path).format(epoch=0))
             models.append(model)
         else:
             model.save_weights(checkpoint_path.format(epoch=0))
@@ -301,8 +301,8 @@ def main(argv):
                 if count == 0: #< 50:
                     confident = False
                     print("Exiting loop")
-            model[0].save_weights((checkpoint_path + "disagreement_animal").format(epoch=0))
-            model[1].save_weights((checkpoint_path + "disagreement_machine").format(epoch=0))
+            animal_model.save_weights((checkpoint_path.replace("machine","animal")).format(epoch=0))
+            machine_model.save_weights((checkpoint_path).format(epoch=0))
 
         else:
             # Reading only 1000 images for lack of computing power
