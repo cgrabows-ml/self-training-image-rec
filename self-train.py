@@ -4,9 +4,10 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2D
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
+from keras import regularizers
 
 
-from data.stl10_input import read_labels, read_all_images
+from data.stl10_input import read_labels, read_all_images, read_some_images
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,20 +51,20 @@ def main(argv):
         elif opt in ("-t", "--threshold"):
             threshold = float(arg)
 
-    print(self_train)
+    print("self-train: ", self_train)
     IMG_HEIGHT = 96
     IMG_WIDTH = 96
 
     binary_path = "data/stl10_binary/"
 
-    # if experiment != "disagreement":
-
+    #read dataset
     og_train_images = read_all_images(binary_path + "train_X.bin")
     og_train_labels = read_labels(binary_path + "train_y.bin")
 
     og_test_images = read_all_images(binary_path + "test_X.bin")
     og_test_labels = read_labels(binary_path + "test_y.bin")
 
+    #split into sub_experiments to handle two models in disagreement case. For other cases, there is only one sub_experiment which is the main experiment.
     experiments = []
     if experiment == "disagreement":
         experiments = ["disagreement_animal", "disagreement_machine"]
@@ -71,10 +72,13 @@ def main(argv):
         experiments = [experiment]
 
     models = []
+    all_train_labels = []
+    all_test_labels = []
+    histories = []
 
     for sub_experiment in experiments:
 
-        checkpoint_path = "training/" + experiment + "-cp-{epoch:04d}.ckpt"
+        checkpoint_path = "training/" + sub_experiment + "-cp-{epoch:04d}.ckpt"
         checkpoint_dir = os.path.dirname(checkpoint_path)
 
         # Create a callback that saves the model's weights every 5 epochs
@@ -84,6 +88,7 @@ def main(argv):
             save_weights_only=True,
             period=5)
 
+        #Convert base labels to the labels we care about for this particular experiment
         test_labels, test_images = convert_labels(og_test_labels, og_test_images, sub_experiment)
         train_labels, train_images = convert_labels(og_train_labels, og_train_images, sub_experiment)
 
@@ -94,6 +99,8 @@ def main(argv):
         train_labels = train_labels[:num_train]
         test_images = test_images[:num_test]
         train_images = train_images[:num_train]
+        all_train_labels.append(train_labels)
+        all_test_labels.append(test_labels)
 
         print(num_train, batch_size)
 
@@ -118,7 +125,8 @@ def main(argv):
 
         model = Sequential([
             Conv2D(16, 3, padding='same', activation='relu',
-                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3)),
+                   input_shape=(IMG_HEIGHT, IMG_WIDTH ,3),
+                   kernel_regularizer=regularizers.l2(0.01)),
             MaxPooling2D(),
             Dropout(0.2),
             Conv2D(32, 3, padding='same', activation='relu'),
@@ -142,16 +150,16 @@ def main(argv):
 
         model.summary()
 
-        # aug = ImageDataGenerator(
-        #     rotation_range=30,
-        #     zoom_range=0.15,
-        #     width_shift_range=0.2,
-        #     height_shift_range=0.2,
-        #     shear_range=0.15,
-        #     horizontal_flip=True,
-        #     fill_mode="nearest")
+        aug = ImageDataGenerator(
+            rotation_range=30,
+            zoom_range=0.15,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            shear_range=0.15,
+            horizontal_flip=True,
+            fill_mode="nearest")
 
-        history = model.fit(
+        histories.append(model.fit(
             # fixed
             train_images, train_labels,
             # broken
@@ -161,128 +169,244 @@ def main(argv):
             callbacks=[cp_callback],
             validation_data=(test_images, test_labels),
             validation_steps=num_test // batch_size
-        )
+        ))
 
         if experiment == "disagreement":
-            model.save_weights((checkpoint_path + sub_experiment).format(epoch=0))
+            model.save_weights((checkpoint_path).format(epoch=0))
             models.append(model)
         else:
             model.save_weights(checkpoint_path.format(epoch=0))
             models.append(model)
 
+    aug = ImageDataGenerator(
+        rotation_range=30,
+        zoom_range=0.15,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.15,
+        horizontal_flip=True,
+        fill_mode="nearest")
 
-    ## Augment dataset with unlabeled images
+    # if self-train is enabled, continue training by predicting labels over the unlabeled data and adding training on samples that score over a certain threshold during inference.
+    if self_train:
+        # separate logic for disagreement experiment to run two models training at once
+        if experiment == "disagreement":
+            ## Augment dataset with unlabeled images
+
+            animal_model = models[0]
+            machine_model = models[1]
+            animal_train_labels = all_train_labels[0]
+            machine_train_labels = all_train_labels[1]
+            animal_test_labels = all_test_labels[0]
+            machine_test_labels = all_test_labels[1]
+
+            unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
+            # Reading only 1000 images for lack of computing power
+            # unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
+            #                                     int(100000 * subset_size))
+            confident = True
+            first = True
+            # While there are still confident labelings
+            while confident:
+                # First train supervised model
+                print("Train images and Animal, machine Label shape: ",
+                      train_images.shape, animal_train_labels.shape, machine_train_labels.shape)
+                print("test images and Animal, machine Label shape: ",
+                      test_images.shape, animal_test_labels.shape, machine_test_labels.shape)
+                if not first:
+                    histories[0] = animal_model.fit(
+                        aug.flow(train_images, animal_train_labels, batch_size = batch_size),
+                        steps_per_epoch=num_train // batch_size,
+                        epochs=epochs,
+                        callbacks=[cp_callback],
+                        validation_data=(test_images, animal_test_labels),
+                        validation_steps=num_test // batch_size
+                    )
+                    histories[1] = machine_model.fit(
+                        aug.flow(train_images, machine_train_labels, batch_size = batch_size),
+                        steps_per_epoch=num_train // batch_size,
+                        epochs=epochs,
+                        callbacks=[cp_callback],
+                        validation_data=(test_images, machine_test_labels),
+                        validation_steps=num_test // batch_size
+                    )
+                first = False
+                # print(train_images[0])
+
+
+                # Predict unlabeled examples and add confident ones
+                count = 0
+                if (len(unlabeled_images) == 0): break
+                unlabeled_predictionsA = animal_model.predict(unlabeled_images)
+                unlabeled_predictionsM = machine_model.predict(unlabeled_images)
+                # Converting this to probabilities:
+                # print(unlabeled_predictions, unlabeled_predictions.shape)
+                probs_A = tf.nn.softmax(unlabeled_predictionsA)
+                probs_M = tf.nn.softmax(unlabeled_predictionsM)
+                temp_labA = np.argmax(probs_A, axis = 1)
+                temp_labM = np.argmax(probs_M, axis = 1)
+
+                # Combining animal and machine labels to one
+                # animal_labels = [2,4,5,6,7,8,0]
+                # machine_labels = [1,3,9,10,0]
+                # If both predicts other or both predict non-other,
+                # it should not get selected for ST so wrong labels wont matter
+                new_animal_labels = []
+                new_machine_labels = []
+                for i in range(len(temp_labA)):
+                    new_animal_labels.append(temp_labA[i])
+                    new_machine_labels.append(temp_labM[i])
+                    # new_labels.append(max(animal_labels[temp_labA[i]],
+                    #                       machine_labels[temp_labM[i]]))
+                class_predsA = np.amax(probs_A, axis = 1)
+                class_predsM = np.amax(probs_M, axis = 1)
+                class_predsA = tf.reshape(class_predsA, [len(class_predsA)])
+                class_predsM = tf.reshape(class_predsM, [len(class_predsM)])
+                class_preds = class_predsA * class_predsM
+
+                assert class_preds.shape == class_predsA.shape
+                print("pred shape", class_predsA.shape)
+
+                to_remove_thresh = (class_preds >= threshold)
+                to_remove_xor = (temp_labA == 6) != (temp_labM == 4)
+                    # XOR: one and only one of the predictions is 'other'
+                to_remove = np.logical_and(to_remove_thresh, to_remove_xor)
+                train_images = np.append(train_images, unlabeled_images[to_remove])
+                new_animal_labels = np.array(new_animal_labels)[to_remove]
+                new_machine_labels = np.array(new_machine_labels)[to_remove]
+                animal_train_labels = np.append(animal_train_labels, new_animal_labels)
+                machine_train_labels = np.append(machine_train_labels, new_machine_labels)
+                count = np.sum(to_remove)
+                unlabeled_images = unlabeled_images[np.logical_not(to_remove)]
+                print("New datapoints: ", count)
+                print("Remaining Datapoints:" ,unlabeled_images.shape)
+
+                train_images = train_images.reshape(-1, 96, 96, 3)
+
+
+                # Recalculating num_train and batch_size:
+                num_train = len(animal_train_labels)
+                num_batches = math.ceil(num_train/batch_size)
+                batch_size = int(num_train/num_batches)
+
+                # No confident labelings left
+                if count == 0: #< 50:
+                    confident = False
+                    print("Exiting loop")
+            animal_model.save_weights((checkpoint_path.replace("machine","animal")).format(epoch=0))
+            machine_model.save_weights((checkpoint_path).format(epoch=0))
+        #similar logic otherwise, but for one model at a time
+        else:
+            # Reading only 1000 images for lack of computing power
+            #unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
+            unlabeled_images = read_some_images(binary_path + "unlabeled_X.bin",
+                                                int(100000 * subset_size))
+            confident = True
+            # While there are still confident labelings
+            while confident:
+                # First train supervised model
+                print("Train images and Label shape: ",
+                      train_images.shape, train_labels.shape)
+                history[0] = model.fit(
+                    aug.flow(train_images, train_labels, batch_size = batch_size),
+                    steps_per_epoch=num_train // batch_size,
+                    epochs=epochs,
+                    callbacks=[cp_callback],
+                    validation_data=(test_images, test_labels),
+                    validation_steps=num_test // batch_size
+                )
+                # Predict unlabeled examples and add confident ones
+                count = 0
+                if (len(unlabeled_images) == 0): break
+                unlabeled_predictions = model.predict(unlabeled_images)
+                # Converting this to probabilities:
+                temp_lab = -1
+                if experiment != "binary":
+                    probss = tf.nn.softmax(unlabeled_predictions)
+                    class_preds = np.amax(probss, axis = 1)
+                    temp_lab = np.argmax(probss, axis = 1)
+                else:
+                    # print(unlabeled_predictions, unlabeled_predictions.shape)
+                    class_preds = tf.nn.sigmoid(unlabeled_predictions)
+                    temp_lab = tf.round(class_preds)
+                class_preds = tf.reshape(class_preds, [len(class_preds)])
+
+                # Version 2: Vectorized?
+                to_remove = class_preds >= threshold
+                train_images = np.append(train_images, unlabeled_images[to_remove])
+                train_labels = np.append(train_labels, temp_lab[to_remove])
+                count = np.sum(to_remove)
+                unlabeled_images = unlabeled_images[np.logical_not(to_remove)]
+                print(count)
+                print(unlabeled_images.shape)
+
+                train_images = train_images.reshape(-1, 96, 96, 3)
+                # Recalculating num_train and batch_size:
+                num_train = len(train_labels)
+                num_batches = math.ceil(num_train/batch_size)
+                batch_size = int(num_train/num_batches)
+
+                # No confident labelings left
+                if count == 0: #< 50:
+                    confident = False
+                    print("Exiting loop")
+            model.save_weights(checkpoint_path.format(epoch=0))
+
+    for history in histories:
+        acc = history.history['accuracy']
+        val_acc = history.history['val_accuracy']
+
+        loss=history.history['loss']
+        val_loss=history.history['val_loss']
+
+        epochs_range = range(epochs)
+
+        plt.figure(figsize=(8, 8))
+        plt.subplot(1, 2, 1)
+        print("Training Accuracy:", acc)
+        print("Val Accuracy", val_acc)
+        plt.plot(epochs_range, acc, label='Training Accuracy')
+        plt.plot(epochs_range, val_acc, label='Validation Accuracy')
+        plt.legend(loc='lower right')
+        plt.title('Training and Validation Accuracy')
+
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs_range, loss, label='Training Loss')
+        plt.plot(epochs_range, val_loss, label='Validation Loss')
+        plt.legend(loc='upper right')
+        plt.title('Training and Validation Loss')
+        plt.show()
+
+
     animal_labels = [2,4,5,6,7,8]
     machine_labels = [1,3,9,10]
     animal_model = models[0]
     machine_model = models[1]
+    animal_predictions = animal_model.predict(test_images)
+    animal_predictions = tf.nn.softmax(animal_predictions)
+    print("animal predictions shape: ", animal_predictions.shape)
+    animal_class_preds = np.amax(animal_predictions[:, 0:6], axis = 1)
+    animal_other_preds = animal_predictions[:, 6]
+    animal_class_labels = np.argmax(animal_predictions[:, 0:6], axis = 1)
 
-    if self_train:
-        unlabeled_images = read_all_images(binary_path + "unlabeled_X.bin")
-        if experiment == "disagreement":
-            animal_predictions = animal_model.predict(unlabeled_images)
-            machine_predictions = machine_model.predict(unlabeled_images)
-            for i in range(len(unlabeled_images)):
-                best_pred = 0
-                pred = -1
-                for j in range(10):
-                    label = j+1
-                    if label in animal_labels:
-                        possible_pred = animal_predictions[i][animal_labels.index(label)]*machine_predictions[len(machine_labels)]
-                    elif label in machine_labels:
-                        possible_pred = machine_predictions[i][machine_labels.index(label)]*animal_predictions[len(animal_labels)]
-                    if possible_pred > best_pred:
-                        best_pred = possible_pred
-                        pred = label
+    machine_predictions = machine_model.predict(test_images)
+    print("machine predictions shape: ", machine_predictions.shape)
+    machine_class_preds = np.amax(machine_predictions[:, 0:4], axis = 1)
+    machine_other_preds = machine_predictions[:, 4]
+    machine_class_labels = np.argmax(machine_predictions[:, 0:4], axis = 1)
 
-                if i % 50 == 0:
-                    print("Augmenting dataset " + str(i) + "/" + str(len(unlabeled_images)) + " complete")
-                # pred = unlabeled_predictions[i]
-                image = unlabeled_images[i]
-                if best_pred >= .75:
-                    train_images = np.append(train_images, image)
-                    # train_labels = np.append(train_labels, np.argmax(pred))
-                    animal_train_labels = np.append(animal_train_labels, pred)
-                    machine_train_labels = np.append(machine_train_labels, pred)
-                    # train_images.append(image)
-                    # converted_train_labels.append(np.argmax(pred))
-
-            animal_history = animal_model.fit(
-                # fixed
-                train_images, animal_train_labels,
-                # broken
-                # aug.flow(train_images, train_labels, batch_size = batch_size),
-                steps_per_epoch=num_train // batch_size,
-                epochs=epochs,
-                validation_data=(test_images, test_labels),
-                validation_steps=num_test // batch_size
-            )
-            animal_model.save_weights((checkpoint_path + "disagreement_animal").format(epoch=0))
-
-            machine_history = animal_model.fit(
-                # fixed
-                train_images, animal_train_labels,
-                # broken
-                # aug.flow(train_images, train_labels, batch_size = batch_size),
-                steps_per_epoch=num_train // batch_size,
-                epochs=epochs,
-                validation_data=(test_images, test_labels),
-                validation_steps=num_test // batch_size
-            )
-            machine_model.save_weights((checkpoint_path + "disagreement_machine").format(epoch=0))
-
-
+    model_preds = []
+    for i in range(len(test_labels)):
+        if animal_class_preds[i] * machine_other_preds[i] > \
+                animal_other_preds[i] * machine_class_preds[i]:
+            model_preds.append(animal_labels[animal_class_labels[i]])
         else:
-            unlabeled_predictions = model.predict(unlabeled_images)
-            for i in range(len(unlabeled_predictions)):
-                if i % 50 == 0:
-                    print("Augmenting dataset " + str(i) + "/" + str(len(unlabeled_images)) + " complete")
-                pred = unlabeled_predictions[i]
-                image = unlabeled_images[i]
-                if np.amax(pred) >= .75:
-                    train_images = np.append(train_images, image)
-                    train_labels = np.append(train_labels, np.argmax(pred))
-                    # train_images.append(image)
-                    # converted_train_labels.append(np.argmax(pred))
+            model_preds.append(machine_labels[machine_class_labels[i]])
 
-            history = model.fit(
-                # fixed
-                train_images,train_labels,
-                # broken
-                # aug.flow(train_images, train_labels, batch_size = batch_size),
-                steps_per_epoch=num_train // batch_size,
-                epochs=epochs,
-                validation_data=(test_images, test_labels),
-                validation_steps=num_test // batch_size
-            )
-            model.save_weights(checkpoint_path.format(epoch=0))
+    valid_accuracy = np.sum(model_preds == test_labels) / len(test_labels)
+    print("validation accuracy: ", valid_accuracy)
 
 
-
-    acc = history.history['accuracy']
-    val_acc = history.history['val_accuracy']
-
-    loss=history.history['loss']
-
-    val_loss=history.history['val_loss']
-
-    epochs_range = range(epochs)
-
-    plt.figure(figsize=(8, 8))
-    plt.subplot(1, 2, 1)
-    print("Traing Accuracy:", acc)
-    print("Val Accuracy", val_acc)
-    plt.plot(epochs_range, acc, label='Training Accuracy')
-    plt.plot(epochs_range, val_acc, label='Validation Accuracy')
-    plt.legend(loc='lower right')
-    plt.title('Training and Validation Accuracy')
-
-    plt.subplot(1, 2, 2)
-    plt.plot(epochs_range, loss, label='Training Loss')
-    plt.plot(epochs_range, val_loss, label='Validation Loss')
-    plt.legend(loc='upper right')
-    plt.title('Training and Validation Loss')
-    plt.show()
 
 if __name__ == "__main__":
    main(sys.argv[1:])

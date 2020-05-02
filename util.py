@@ -5,7 +5,7 @@ from tensorflow.keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2
 
 import numpy as np
 
-
+#Convert labels for a given experiment. For example, for the binary experiment convert all animal labels to 0 and machine labels to 1.
 def convert_labels(labels, images, experiment):
     print(experiment)
     animal_labels = [2,4,5,6,7,8]
